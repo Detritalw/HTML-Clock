@@ -1,0 +1,1736 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Liquid Glass Clock</title>
+<style>
+  :root {
+    --accent: #0a84ff;
+    --accent-glow: rgba(10, 132, 255, 0.5);
+    --bg: #000;
+    --fg: #fff;
+    --fg-dim: rgba(255,255,255,0.55);
+    --fg-muted: rgba(255,255,255,0.35);
+    --glass-bg: rgba(255,255,255,0.08);
+    --glass-bg-strong: rgba(255,255,255,0.14);
+    --glass-border: rgba(255,255,255,0.18);
+    --glass-border-strong: rgba(255,255,255,0.32);
+    --glass-highlight: rgba(255,255,255,0.5);
+    --glass-shadow: rgba(0,0,0,0.5);
+    --panel-bg: rgba(22,22,24,0.55);
+    --divider: rgba(255,255,255,0.08);
+    --chip-bg: rgba(120,120,128,0.22);
+    --chip-hover: rgba(120,120,128,0.38);
+    --chip-active: var(--accent);
+    --transition: cubic-bezier(0.32, 0.72, 0, 1);
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
+    --blur-amount: 40px;
+    --clock-radius: 32px;
+    --letter-spacing: -0.06em;
+    --clock-opacity: 1;
+  }
+
+  [data-theme="light"] {
+    --bg: #f5f5f7;
+    --fg: #1d1d1f;
+    --fg-dim: rgba(0,0,0,0.55);
+    --fg-muted: rgba(0,0,0,0.35);
+    --glass-bg: rgba(255,255,255,0.45);
+    --glass-bg-strong: rgba(255,255,255,0.65);
+    --glass-border: rgba(255,255,255,0.7);
+    --glass-border-strong: rgba(255,255,255,0.95);
+    --glass-highlight: rgba(255,255,255,0.95);
+    --glass-shadow: rgba(0,0,0,0.15);
+    --panel-bg: rgba(255,255,255,0.62);
+    --divider: rgba(0,0,0,0.08);
+    --chip-bg: rgba(120,120,128,0.14);
+    --chip-hover: rgba(120,120,128,0.28);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--fg);
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior: none;
+  }
+
+  .svg-filters { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+  /* ===== Background ===== */
+  .bg-layer { position: fixed; inset: 0; z-index: 0; transition: opacity 1s var(--transition), background 1s var(--transition); }
+  .bg-image { background-size: cover; background-position: center; background-repeat: no-repeat; }
+  .bg-overlay { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+
+  .ambient-orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+    mix-blend-mode: screen;
+    transition: background 0.8s var(--transition);
+  }
+  .ambient-orb-1 {
+    width: 70vmax; height: 70vmax;
+    top: -20vmax; left: -20vmax;
+    animation: orbFloat1 25s ease-in-out infinite;
+  }
+  .ambient-orb-2 {
+    width: 60vmax; height: 60vmax;
+    bottom: -20vmax; right: -15vmax;
+    animation: orbFloat2 30s ease-in-out infinite;
+  }
+  @keyframes orbFloat1 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(10vmax, 8vmax) scale(1.15); }
+  }
+  @keyframes orbFloat2 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-8vmax, -10vmax) scale(1.1); }
+  }
+
+  /* Mouse-following light */
+  .mouse-light {
+    position: fixed;
+    width: 50vmax; height: 50vmax;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 1;
+    transform: translate(-50%, -50%);
+    transition: opacity 0.4s;
+    mix-blend-mode: overlay;
+  }
+
+  /* ===== Stage ===== */
+  .stage {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 2;
+  }
+  .stage[data-position="top"] { align-items: flex-start; padding-top: 15vh; }
+  .stage[data-position="bottom"] { align-items: flex-end; padding-bottom: 15vh; }
+
+  .clock-wrap {
+    color: var(--clock-fg, inherit);
+    opacity: var(--clock-opacity);
+    transition: opacity 0.4s var(--transition);
+  }
+
+  /* ===== Digital Clock ===== */
+  .digital {
+    display: flex; align-items: baseline; justify-content: center;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: var(--letter-spacing);
+    text-align: center;
+    line-height: 1;
+  }
+  .digital .time { font-size: clamp(100px, 26vw, 420px); }
+  .digital .seconds { font-size: clamp(36px, 7vw, 110px); opacity: 0.65; margin-left: 0.08em; }
+  .digital .colon { animation: blink 1s steps(2, start) infinite; }
+  @keyframes blink { to { opacity: 0.25; } }
+  .digital.no-blink .colon { animation: none; }
+
+  .digital[data-text-effect="liquid"] .time { filter: url(#liquid-glass-text); }
+  .digital[data-text-effect="glow"] .time { text-shadow: 0 0 40px currentColor, 0 0 80px currentColor; opacity: 0.95; }
+  .digital[data-text-effect="outline"] .time { -webkit-text-stroke: 2px currentColor; color: transparent; }
+  .digital[data-text-effect="shadow"] .time { text-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+  .digital[data-text-effect="metal"] .time {
+    background: linear-gradient(180deg, #fff 0%, #aaa 40%, #fff 50%, #888 60%, #fff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 4px 20px rgba(0,0,0,0.3));
+  }
+
+  /* Meta */
+  .meta {
+    position: absolute;
+    bottom: max(36px, env(safe-area-inset-bottom, 36px));
+    left: 0; right: 0;
+    text-align: center;
+    transition: opacity 0.5s var(--transition);
+  }
+  .meta-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    padding: 11px 24px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--blur-amount)) saturate(180%);
+    -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(180%);
+    border-radius: 999px;
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 8px 32px var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+    font-size: clamp(13px, 1.6vw, 17px);
+    font-weight: 400;
+    letter-spacing: 0.01em;
+  }
+  .meta .divider-dot {
+    width: 3px; height: 3px;
+    background: var(--fg-dim);
+    border-radius: 50%;
+  }
+  .meta .weekday { color: var(--fg-dim); }
+
+  /* Layouts */
+  .stage[data-layout="vertical"] .clock-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.1em; }
+  .stage[data-layout="vertical"] .digital .time { font-size: clamp(80px, 16vw, 240px); }
+  .stage[data-layout="vertical"] .digital .seconds { font-size: clamp(28px, 5vw, 72px); }
+
+  .stage[data-layout="stacked"] .clock-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.4em; }
+  .stage[data-layout="stacked"] .digital .time { font-size: clamp(90px, 20vw, 300px); }
+  .stage[data-layout="stacked"] .digital .seconds { display: block; width: 100%; text-align: center; font-size: clamp(32px, 6vw, 90px); opacity: 0.45; }
+
+  /* ===== Analog Clock ===== */
+  .analog {
+    position: relative;
+    width: min(80vw, 80vh, 520px);
+    aspect-ratio: 1;
+  }
+  .analog .dial {
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--blur-amount)) saturate(180%);
+    -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 20px 60px var(--glass-shadow), inset 0 2px 0 var(--glass-highlight), inset 0 -2px 0 rgba(0,0,0,0.2);
+    overflow: hidden;
+  }
+  .analog .dial::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(ellipse at 30% 25%, rgba(255,255,255,0.18) 0%, transparent 55%);
+    pointer-events: none;
+  }
+  .analog .dial::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at 70% 80%, rgba(255,255,255,0.04) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .analog .tick {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 2px; height: 50%;
+    transform-origin: 50% 100%;
+    color: var(--fg);
+  }
+  .analog .tick::after {
+    content: '';
+    position: absolute;
+    top: 8px; left: 50%;
+    width: 3px; height: 18px;
+    background: currentColor;
+    transform: translateX(-50%);
+    border-radius: 2px;
+    opacity: 0.9;
+  }
+  .analog .tick.minor::after { height: 5px; width: 1px; opacity: 0.35; top: 10px; }
+  .analog .tick[data-num]::after { content: attr(data-num); width: auto; height: auto; background: none; font-size: 22px; font-weight: 500; opacity: 0.75; top: 28px; letter-spacing: 0; }
+  .analog .hand {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform-origin: 50% 100%;
+    background: var(--fg);
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+  }
+  .analog .hand.hour { width: 6px; height: 26%; margin-left: -3px; margin-top: -26%; border-radius: 3px; }
+  .analog .hand.minute { width: 4px; height: 38%; margin-left: -2px; margin-top: -38%; border-radius: 2px; }
+  .analog .hand.second { width: 2px; height: 42%; margin-left: -1px; margin-top: -42%; background: var(--accent); box-shadow: 0 0 14px var(--accent-glow); }
+  .analog .hand.second[data-tick="true"] { transition: transform 0.15s cubic-bezier(0.4, 2, 0.5, 1); }
+  .analog .center {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 12px; height: 12px;
+    margin: -6px 0 0 -6px;
+    background: var(--fg);
+    border-radius: 50%;
+    z-index: 5;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  }
+  .analog .center::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+
+  .analog[data-style="modern"] { }
+  .analog[data-style="classic"] .hand.second { display: none; }
+  .analog[data-style="classic"] .dial::before { display: none; }
+  .analog[data-style="classic"] .dial { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255,255,255,0.03); border: 2px solid var(--fg); }
+  .analog[data-style="minimal"] .tick.minor { display: none; }
+  .analog[data-style="minimal"] .hand.second { display: none; }
+  .analog[data-style="minimal"] .dial::before { opacity: 0.5; }
+  .analog[data-style="skeleton"] .dial { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: none; box-shadow: none; }
+  .analog[data-style="skeleton"] .dial::before, .analog[data-style="skeleton"] .dial::after { display: none; }
+  .analog[data-style="neon"] .dial { background: rgba(0,255,234,0.05); border-color: rgba(0,255,234,0.4); box-shadow: 0 0 40px rgba(0,255,234,0.3), inset 0 0 40px rgba(0,255,234,0.1); }
+  .analog[data-style="neon"] .tick, .analog[data-style="neon"] .hand.hour, .analog[data-style="neon"] .hand.minute { color: #00ffea; background: #00ffea; text-shadow: 0 0 10px #00ffea; box-shadow: 0 0 10px #00ffea; }
+
+  /* ===== Word Clock ===== */
+  .word-clock {
+    font-size: clamp(36px, 9vw, 140px);
+    text-align: center;
+    line-height: 1.2;
+    letter-spacing: var(--letter-spacing);
+    max-width: 90vw;
+  }
+  .word-clock .line { display: block; }
+  .word-clock .accent {
+    color: var(--accent);
+    font-weight: 500;
+    text-shadow: 0 0 30px var(--accent-glow);
+  }
+
+  /* ===== Flip Clock ===== */
+  .flip { display: flex; gap: 0.1em; align-items: center; }
+  .flip .digit {
+    position: relative;
+    width: clamp(50px, 11vw, 160px);
+    aspect-ratio: 0.7;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--blur-amount)) saturate(180%);
+    -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(180%);
+    border-radius: var(--clock-radius);
+    border: 1px solid var(--glass-border);
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-size: clamp(50px, 11vw, 160px);
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 12px 40px var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  }
+  .flip .digit::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.15) 0%, transparent 55%);
+    pointer-events: none;
+  }
+  .flip .digit::after {
+    content: '';
+    position: absolute;
+    left: 8px; right: 8px; top: 50%;
+    height: 1px;
+    background: rgba(0,0,0,0.25);
+  }
+  .flip .colon { font-size: clamp(44px, 9vw, 130px); opacity: 0.55; }
+  .flip .ampm {
+    font-size: clamp(16px, 3vw, 36px);
+    opacity: 0.6;
+    margin-left: 0.3em;
+    align-self: flex-end;
+    margin-bottom: 0.3em;
+  }
+
+  /* ===== Settings Toggle ===== */
+  .settings-toggle {
+    position: fixed;
+    top: max(24px, env(safe-area-inset-top, 24px));
+    right: max(24px, env(safe-area-inset-right, 24px));
+    width: 50px; height: 50px;
+    border-radius: 50%;
+    background: var(--glass-bg);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 8px 24px var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    z-index: 100;
+    opacity: 0;
+    transform: scale(0.85);
+    transition: all 0.4s var(--transition);
+  }
+  .settings-toggle:hover { opacity: 1; transform: scale(1.08) rotate(45deg); }
+  .settings-toggle img { width: 22px; height: 22px; }
+  body:hover .settings-toggle, .settings-toggle.visible { opacity: 1; transform: scale(1); }
+
+  .fullscreen-hint {
+    position: fixed;
+    bottom: max(14px, env(safe-area-inset-bottom, 14px));
+    right: max(24px, env(safe-area-inset-right, 24px));
+    padding: 6px 14px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 999px;
+    border: 1px solid var(--glass-border);
+    font-size: 11px;
+    color: var(--fg-dim);
+    opacity: 0;
+    transition: opacity 0.4s var(--transition);
+    z-index: 50;
+  }
+  body:hover .fullscreen-hint { opacity: 0.65; }
+
+  /* ===== Settings Modal ===== */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    z-index: 150;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s var(--transition);
+  }
+  .overlay.show { opacity: 1; pointer-events: auto; }
+
+  .settings-modal {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.96);
+    width: min(1100px, 94vw);
+    height: min(780px, 92vh);
+    background: var(--panel-bg);
+    backdrop-filter: blur(60px) saturate(200%);
+    -webkit-backdrop-filter: blur(60px) saturate(200%);
+    border: 1px solid var(--glass-border-strong);
+    border-radius: 24px;
+    box-shadow: 0 40px 100px rgba(0,0,0,0.5), inset 0 1px 0 var(--glass-highlight);
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.5s var(--transition);
+    display: flex;
+    overflow: hidden;
+  }
+  .settings-modal.open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  /* Left: Preview */
+  .preview-pane {
+    width: 45%;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.02), rgba(255,255,255,0.05));
+    border-right: 1px solid var(--divider);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  .preview-pane::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 20% 10%, rgba(255,255,255,0.08), transparent 50%);
+    pointer-events: none;
+  }
+  .preview-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--divider);
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .preview-header h3 {
+    font-size: 13px; font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
+  }
+  .preview-stage {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .preview-frame {
+    width: 85%;
+    aspect-ratio: 16/10;
+    background: var(--preview-bg, #000);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.1);
+    position: relative;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .preview-frame::before {
+    content: '';
+    position: absolute;
+    top: 6px; left: 50%;
+    transform: translateX(-50%);
+    width: 50px; height: 5px;
+    background: rgba(0,0,0,0.5);
+    border-radius: 3px;
+    z-index: 10;
+  }
+  .preview-bg-layer { position: absolute; inset: 0; border-radius: 16px; }
+  .preview-clock {
+    position: relative;
+    z-index: 2;
+    transform: scale(var(--preview-scale, 0.3));
+    transform-origin: center;
+    pointer-events: none;
+  }
+  .preview-meta {
+    position: absolute;
+    bottom: 14px;
+    left: 0; right: 0;
+    text-align: center;
+    z-index: 3;
+    font-size: 10px;
+    color: rgba(255,255,255,0.7);
+    letter-spacing: 0.02em;
+  }
+
+  /* Right: Settings */
+  .settings-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .settings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--divider);
+    flex-shrink: 0;
+  }
+  .settings-header h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+  .settings-close {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--chip-bg);
+    border: 1px solid var(--glass-border);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s var(--transition);
+  }
+  .settings-close:hover { background: var(--chip-hover); transform: rotate(90deg); }
+  .settings-close img { width: 14px; height: 14px; }
+
+  .settings-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0 40px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(128,128,128,0.4) transparent;
+  }
+  .settings-body::-webkit-scrollbar { width: 6px; }
+  .settings-body::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.4); border-radius: 3px; }
+
+  .section { padding: 16px 24px; }
+  .section + .section { border-top: 1px solid var(--divider); }
+  .section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--fg-dim);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .section-title .action-btn {
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    padding: 4px 10px;
+    background: rgba(10,132,255,0.15);
+    border-radius: 999px;
+    transition: all 0.2s;
+  }
+  .section-title .action-btn:hover { background: rgba(10,132,255,0.25); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    padding: 9px 14px;
+    border-radius: 999px;
+    background: var(--chip-bg);
+    border: 1px solid transparent;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.25s var(--transition);
+    display: flex; align-items: center; gap: 6px;
+    color: var(--fg);
+    font-family: inherit;
+  }
+  .chip:hover { background: var(--chip-hover); transform: translateY(-1px); }
+  .chip.active {
+    background: var(--chip-active);
+    color: #fff;
+    border-color: var(--chip-active);
+    box-shadow: 0 4px 14px var(--accent-glow);
+  }
+  .chip img { width: 14px; height: 14px; }
+
+  .swatches { display: flex; gap: 10px; flex-wrap: wrap; }
+  .swatch {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.25s var(--transition);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  }
+  .swatch:hover { transform: scale(1.12); }
+  .swatch.active { border-color: var(--fg); transform: scale(1.08); box-shadow: 0 4px 20px var(--accent-glow); }
+
+  .input-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .input-row input[type="text"], .input-row input[type="url"], .input-row input[type="number"] {
+    flex: 1;
+    padding: 10px 14px;
+    background: var(--chip-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    color: var(--fg);
+    font-size: 12.5px;
+    font-family: inherit;
+    outline: none;
+    transition: all 0.2s var(--transition);
+    min-width: 0;
+  }
+  .input-row input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .input-row button {
+    padding: 10px 16px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s;
+  }
+  .input-row button:hover { filter: brightness(1.1); }
+
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0;
+    font-size: 13.5px;
+  }
+  .row .label { display: flex; align-items: center; gap: 10px; }
+  .row .label img { width: 18px; height: 18px; opacity: 0.75; }
+  .toggle {
+    position: relative;
+    width: 46px; height: 28px;
+    background: var(--chip-bg);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.3s var(--transition);
+    border: 1px solid var(--glass-border);
+    flex-shrink: 0;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 22px; height: 22px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.3s var(--transition);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+  .toggle.on { background: #34c759; border-color: #34c759; }
+  .toggle.on::after { transform: translateX(18px); }
+
+  .slider-row { padding: 8px 0; }
+  .slider-row .top { display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 10px; }
+  .slider-row .top .val { color: var(--fg-dim); font-variant-numeric: tabular-nums; font-weight: 500; }
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 5px;
+    background: var(--chip-bg);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px; height: 20px;
+    background: #fff;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    border: 2px solid var(--accent);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 20px; height: 20px;
+    background: #fff;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid var(--accent);
+  }
+
+  /* Font Dialog */
+  .font-dialog {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.96);
+    width: min(900px, 92vw);
+    height: min(650px, 88vh);
+    background: var(--panel-bg);
+    backdrop-filter: blur(60px) saturate(200%);
+    -webkit-backdrop-filter: blur(60px) saturate(200%);
+    border: 1px solid var(--glass-border-strong);
+    border-radius: 24px;
+    box-shadow: 0 40px 100px rgba(0,0,0,0.6), inset 0 1px 0 var(--glass-highlight);
+    z-index: 300;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.5s var(--transition);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .font-dialog.open { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1); }
+  .font-dialog-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--divider);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .font-dialog-header h2 { font-size: 20px; font-weight: 600; }
+  .font-tabs {
+    padding: 0 24px;
+    border-bottom: 1px solid var(--divider);
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .font-tab {
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    background: none; border-top: none; border-left: none; border-right: none;
+    font-family: inherit;
+  }
+  .font-tab:hover { color: var(--fg); }
+  .font-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .font-grid {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+    scrollbar-width: thin;
+  }
+  .font-grid::-webkit-scrollbar { width: 6px; }
+  .font-grid::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.4); border-radius: 3px; }
+  .font-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.25s var(--transition);
+    position: relative;
+    overflow: hidden;
+  }
+  .font-card::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.1) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .font-card:hover {
+    transform: translateY(-3px);
+    background: var(--glass-bg-strong);
+    border-color: var(--glass-border-strong);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+  }
+  .font-card.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent), 0 12px 30px var(--accent-glow);
+  }
+  .font-card .preview-time {
+    font-size: 42px;
+    font-weight: 200;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    margin-bottom: 10px;
+    position: relative;
+    z-index: 1;
+  }
+  .font-card .font-name {
+    font-size: 12px;
+    color: var(--fg-dim);
+    position: relative;
+    z-index: 1;
+  }
+  .font-card .check {
+    position: absolute;
+    top: 12px; right: 12px;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: none;
+    align-items: center; justify-content: center;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .font-card.active .check { display: flex; }
+
+  /* Responsive */
+  @media (max-width: 860px) {
+    .settings-modal { flex-direction: column; height: 94vh; }
+    .preview-pane { width: 100%; height: 220px; border-right: none; border-bottom: 1px solid var(--divider); }
+    .preview-frame { width: 60%; aspect-ratio: 16/10; }
+  }
+  @media (max-width: 500px) {
+    .settings-modal { width: 100vw; height: 100vh; border-radius: 0; }
+    .font-dialog { width: 100vw; height: 100vh; border-radius: 0; }
+    .font-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+  .stage { animation: fadeIn 1s var(--transition); }
+</style>
+</head>
+<body data-theme="dark">
+
+<svg class="svg-filters">
+  <defs>
+    <filter id="liquid-glass-text">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="0.6" result="blur"/>
+      <feSpecularLighting in="blur" surfaceScale="1.5" specularConstant="1" specularExponent="25" lighting-color="#fff" result="spec">
+        <fePointLight x="200" y="100" z="300"/>
+      </feSpecularLighting>
+      <feComposite in="spec" in2="SourceAlpha" operator="in" result="specOut"/>
+      <feComposite in="SourceGraphic" in2="specOut" operator="arithmetic" k1="0" k2="1" k3="0.25" k4="0"/>
+    </filter>
+  </defs>
+</svg>
+
+<div class="bg-layer" id="bgLayer"></div>
+<div class="bg-overlay" id="bgOverlay"></div>
+<div class="ambient-orb ambient-orb-1" id="orb1"></div>
+<div class="ambient-orb ambient-orb-2" id="orb2"></div>
+<div class="mouse-light" id="mouseLight"></div>
+
+<div class="stage" id="stage" data-layout="horizontal" data-position="center">
+  <div class="clock-wrap" id="clockWrap"></div>
+</div>
+
+<div class="meta" id="meta">
+  <div class="meta-inner" id="metaInner"></div>
+</div>
+
+<button class="settings-toggle" id="settingsToggle" aria-label="设置">
+  <img src="https://img.bloret.net/SF/gearshape.fill" alt="">
+</button>
+
+<div class="fullscreen-hint">按 F 或双击全屏</div>
+
+<div class="overlay" id="overlay"></div>
+
+<div class="settings-modal" id="settingsModal">
+  <!-- LEFT: Preview -->
+  <div class="preview-pane">
+    <div class="preview-header">
+      <h3>实时预览</h3>
+      <span style="font-size:11px; color: var(--fg-dim);">Live</span>
+    </div>
+    <div class="preview-stage">
+      <div class="preview-frame" id="previewFrame">
+        <div class="preview-bg-layer" id="previewBg"></div>
+        <div class="preview-clock" id="previewClock"></div>
+        <div class="preview-meta" id="previewMeta"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Settings -->
+  <div class="settings-pane">
+    <div class="settings-header">
+      <h2>个性化</h2>
+      <button class="settings-close" id="settingsClose" aria-label="关闭">
+        <img src="https://img.bloret.net/SF/xmark" alt="">
+      </button>
+    </div>
+
+    <div class="settings-body">
+      <div class="section">
+        <div class="section-title">时钟样式</div>
+        <div class="chips" id="clockStyleChips"></div>
+      </div>
+
+      <div class="section" id="analogSubSection" style="display:none;">
+        <div class="section-title">表盘风格</div>
+        <div class="chips" id="analogSubChips"></div>
+      </div>
+
+      <div class="section" id="textEffectSection">
+        <div class="section-title">文字效果</div>
+        <div class="chips" id="textEffectChips"></div>
+      </div>
+
+      <div class="section" id="layoutSection">
+        <div class="section-title">布局</div>
+        <div class="chips" id="layoutChips"></div>
+      </div>
+
+      <div class="section" id="positionSection">
+        <div class="section-title">位置</div>
+        <div class="chips" id="positionChips"></div>
+      </div>
+
+      <div class="section" id="fontSection">
+        <div class="section-title">
+          字体
+          <span class="action-btn" id="openFontDialog">浏览全部字体 →</span>
+        </div>
+        <div class="chips" id="fontChips"></div>
+      </div>
+
+      <div class="section" id="weightSection">
+        <div class="section-title">字重</div>
+        <div class="chips" id="weightChips"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">界面主题</div>
+        <div class="chips" id="themeChips"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">背景样式</div>
+        <div class="chips" id="bgChips"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">自定义背景图片</div>
+        <div class="input-row">
+          <input type="url" id="bgImageUrl" placeholder="粘贴图片 URL...">
+          <button id="applyBgImage">应用</button>
+        </div>
+        <div class="slider-row" style="margin-top: 12px;">
+          <div class="top"><span>图片模糊</span><span class="val" id="imgBlurVal">0px</span></div>
+          <input type="range" min="0" max="40" step="2" value="0" id="imgBlurSlider">
+        </div>
+        <div class="slider-row">
+          <div class="top"><span>图片遮罩</span><span class="val" id="imgDimVal">0%</span></div>
+          <input type="range" min="0" max="80" step="5" value="0" id="imgDimSlider">
+        </div>
+        <div class="chips" style="margin-top: 10px;">
+          <button class="chip" id="clearBgImage">
+            <img src="https://img.bloret.net/SF/trash" alt="">清除图片
+          </button>
+          <button class="chip" id="sampleBgImage">
+            <img src="https://img.bloret.net/SF/photo" alt="">使用示例图
+          </button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">时钟颜色</div>
+        <div class="swatches" id="colorSwatches"></div>
+        <div class="input-row" style="margin-top: 12px;">
+          <input type="text" id="customColorInput" placeholder="自定义 HEX 如 #ff6b6b">
+          <button id="applyCustomColor">应用</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">强调色</div>
+        <div class="swatches" id="accentSwatches"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">时间格式</div>
+        <div class="chips" id="timeFormatChips"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">日期格式</div>
+        <div class="chips" id="dateFormatChips"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">显示选项</div>
+        <div class="row">
+          <span class="label"><img src="https://img.bloret.net/SF/clock" alt="">显示秒</span>
+          <button class="toggle" id="showSecondsToggle"></button>
+        </div>
+        <div class="row">
+          <span class="label"><img src="https://img.bloret.net/SF/calendar" alt="">显示日期</span>
+          <button class="toggle" id="showDateToggle"></button>
+        </div>
+        <div class="row">
+          <span class="label"><img src="https://img.bloret.net/SF/colon" alt="">分隔符闪烁</span>
+          <button class="toggle" id="blinkToggle"></button>
+        </div>
+        <div class="row">
+          <span class="label"><img src="https://img.bloret.net/SF/number" alt="">小时补零 (08:30)</span>
+          <button class="toggle" id="leadingZeroToggle"></button>
+        </div>
+        <div class="row">
+          <span class="label"><img src="https://img.bloret.net/SF/sparkles" alt="">环境光效果</span>
+          <button class="toggle" id="ambientToggle"></button>
+        </div>
+        <div class="row">
+          <span class="label"><img src="https://img.bloret.net/SF/cursorarrow.rays" alt="">鼠标光效</span>
+          <button class="toggle" id="mouseLightToggle"></button>
+        </div>
+        <div class="row">
+          <span class="label"><img src="https://img.bloret.net/SF/eye.fill" alt="">常驻设置按钮</span>
+          <button class="toggle" id="alwaysShowToggle"></button>
+        </div>
+      </div>
+
+      <div class="section" id="analogTickSection" style="display:none;">
+        <div class="section-title">秒针行为</div>
+        <div class="chips" id="secondsModeChips"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">精细调节</div>
+        <div class="slider-row">
+          <div class="top"><span>时钟尺寸</span><span class="val" id="sizeVal">100%</span></div>
+          <input type="range" min="60" max="180" step="5" value="100" id="sizeSlider">
+        </div>
+        <div class="slider-row">
+          <div class="top"><span>时钟透明度</span><span class="val" id="opacityVal">100%</span></div>
+          <input type="range" min="20" max="100" step="5" value="100" id="opacitySlider">
+        </div>
+        <div class="slider-row">
+          <div class="top"><span>字间距</span><span class="val" id="letterVal">-0.06em</span></div>
+          <input type="range" min="-15" max="10" step="1" value="-6" id="letterSlider">
+        </div>
+        <div class="slider-row">
+          <div class="top"><span>模糊强度</span><span class="val" id="blurVal">40px</span></div>
+          <input type="range" min="10" max="80" step="5" value="40" id="blurSlider">
+        </div>
+        <div class="slider-row">
+          <div class="top"><span>圆角大小</span><span class="val" id="radiusVal">32px</span></div>
+          <input type="range" min="0" max="80" step="4" value="32" id="radiusSlider">
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="row" style="justify-content: center; padding: 20px 0;">
+          <button class="chip" id="resetBtn" style="padding: 12px 24px;">
+            <img src="https://img.bloret.net/SF/arrow.counterclockwise" alt="">重置为默认
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Font Dialog -->
+<div class="font-dialog" id="fontDialog">
+  <div class="font-dialog-header">
+    <h2>字体库</h2>
+    <button class="settings-close" id="fontDialogClose" aria-label="关闭">
+      <img src="https://img.bloret.net/SF/xmark" alt="">
+    </button>
+  </div>
+  <div class="font-tabs" id="fontTabs">
+    <button class="font-tab active" data-cat="all">全部</button>
+    <button class="font-tab" data-cat="sans">无衬线</button>
+    <button class="font-tab" data-cat="serif">衬线</button>
+    <button class="font-tab" data-cat="mono">等宽</button>
+    <button class="font-tab" data-cat="display">艺术</button>
+    <button class="font-tab" data-cat="hand">手写</button>
+  </div>
+  <div class="font-grid" id="fontGrid"></div>
+</div>
+
+<script>
+(() => {
+  const SF = (n) => `https://img.bloret.net/SF/${encodeURIComponent(n)}`;
+
+  const DEFAULTS = {
+    clockStyle: 'digital', analogSub: 'modern', textEffect: 'liquid',
+    layout: 'horizontal', position: 'center',
+    font: 'system', weight: 200,
+    theme: 'dark', bg: 'gradient-midnight',
+    bgImage: '', imgBlur: 0, imgDim: 0,
+    clockColor: 'inherit', accentColor: '#0a84ff',
+    timeFormat: '24h', dateFormat: 'full',
+    showSeconds: true, showDate: true, blink: true, leadingZero: true,
+    ambient: true, mouseLight: true, alwaysShowBtn: false,
+    secondsMode: 'smooth',
+    size: 100, opacity: 100, letter: -6, blur: 40, radius: 32,
+  };
+
+  const STORAGE_KEY = 'liquid-glass-clock-v3';
+  let cfg = { ...DEFAULTS, ...load() };
+  function load() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; } }
+  function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)); }
+
+  const $ = id => document.getElementById(id);
+  const stage = $('stage'), clockWrap = $('clockWrap'), meta = $('meta'), metaInner = $('metaInner');
+  const bgLayer = $('bgLayer'), bgOverlay = $('bgOverlay');
+  const orb1 = $('orb1'), orb2 = $('orb2'), mouseLight = $('mouseLight');
+  const modal = $('settingsModal'), overlayEl = $('overlay');
+  const toggleBtn = $('settingsToggle');
+  const previewFrame = $('previewFrame'), previewBg = $('previewBg');
+  const previewClock = $('previewClock'), previewMeta = $('previewMeta');
+  const fontDialog = $('fontDialog');
+
+  const options = {
+    clockStyle: [
+      { id: 'digital', label: '数字', icon: 'textformat' },
+      { id: 'analog',  label: '指针', icon: 'clock.fill' },
+      { id: 'word',    label: '文字', icon: 'textformat.abc' },
+      { id: 'flip',    label: '翻页', icon: 'rectangle.stack.fill' },
+    ],
+    analogSub: [
+      { id: 'modern', label: '现代' }, { id: 'classic', label: '经典' },
+      { id: 'minimal', label: '简约' }, { id: 'skeleton', label: '镂空' },
+      { id: 'neon', label: '霓虹' },
+    ],
+    textEffect: [
+      { id: 'none', label: '默认' }, { id: 'liquid', label: 'Liquid' },
+      { id: 'glow', label: '发光' }, { id: 'outline', label: '描边' },
+      { id: 'shadow', label: '阴影' }, { id: 'metal', label: '金属' },
+    ],
+    layout: [
+      { id: 'horizontal', label: '横向', icon: 'arrow.left.and.right' },
+      { id: 'vertical', label: '纵向', icon: 'arrow.up.and.down' },
+      { id: 'stacked', label: '堆叠', icon: 'square.stack.fill' },
+    ],
+    position: [
+      { id: 'center', label: '居中', icon: 'circle.grid.cross.fill' },
+      { id: 'top', label: '顶部', icon: 'arrow.up.to.line' },
+      { id: 'bottom', label: '底部', icon: 'arrow.down.to.line' },
+    ],
+    font: [
+      { id: 'system', label: 'SF Pro' },
+      { id: 'display', label: 'Display' },
+      { id: 'serif', label: '衬线' },
+      { id: 'mono', label: '等宽' },
+      { id: 'rounded', label: '圆体' },
+      { id: 'newYork', label: 'New York' },
+    ],
+    weight: [
+      { id: 100, label: '极细' }, { id: 200, label: '纤细' },
+      { id: 300, label: '轻盈' }, { id: 400, label: '常规' },
+      { id: 500, label: '中等' }, { id: 600, label: '半粗' },
+      { id: 700, label: '粗体' }, { id: 900, label: '黑体' },
+    ],
+    theme: [
+      { id: 'dark', label: '深色', icon: 'moon.fill' },
+      { id: 'light', label: '浅色', icon: 'sun.max.fill' },
+      { id: 'auto', label: '自动', icon: 'circle.lefthalf.filled' },
+    ],
+    bg: [
+      { id: 'solid', label: '纯色' },
+      { id: 'gradient-midnight', label: '午夜' },
+      { id: 'gradient-sunset', label: '落日' },
+      { id: 'gradient-aurora', label: '极光' },
+      { id: 'gradient-ocean', label: '海洋' },
+      { id: 'gradient-rose', label: '玫瑰' },
+      { id: 'gradient-forest', label: '森林' },
+      { id: 'gradient-lavender', label: '薰衣草' },
+      { id: 'gradient-peach', label: '蜜桃' },
+      { id: 'gradient-carbon', label: '碳黑' },
+    ],
+    clockColor: [
+      { id: 'inherit', color: 'linear-gradient(135deg,#fff,#aaa)', label: '自动' },
+      { id: '#fff', color: '#fff', label: '白' },
+      { id: '#000', color: '#000', label: '黑' },
+      { id: '#0a84ff', color: '#0a84ff', label: '蓝' },
+      { id: '#30d158', color: '#30d158', label: '绿' },
+      { id: '#ff9f0a', color: '#ff9f0a', label: '橙' },
+      { id: '#ff453a', color: '#ff453a', label: '红' },
+      { id: '#bf5af2', color: '#bf5af2', label: '紫' },
+      { id: '#64d2ff', color: '#64d2ff', label: '青' },
+      { id: '#ffd60a', color: '#ffd60a', label: '黄' },
+      { id: '#ff375f', color: '#ff375f', label: '粉' },
+      { id: '#ac8e68', color: '#ac8e68', label: '金' },
+    ],
+    accentColor: [
+      { id: '#0a84ff', color: '#0a84ff', label: '蓝' },
+      { id: '#30d158', color: '#30d158', label: '绿' },
+      { id: '#ff9f0a', color: '#ff9f0a', label: '橙' },
+      { id: '#ff453a', color: '#ff453a', label: '红' },
+      { id: '#bf5af2', color: '#bf5af2', label: '紫' },
+      { id: '#64d2ff', color: '#64d2ff', label: '青' },
+      { id: '#ffd60a', color: '#ffd60a', label: '黄' },
+      { id: '#ff375f', color: '#ff375f', label: '粉' },
+    ],
+    timeFormat: [
+      { id: '24h', label: '24 小时' },
+      { id: '12h', label: '12 小时' },
+    ],
+    dateFormat: [
+      { id: 'full', label: '完整' }, { id: 'short', label: '简短' },
+      { id: 'numeric', label: '数字' }, { id: 'iso', label: 'ISO' },
+    ],
+    secondsMode: [
+      { id: 'smooth', label: '平滑扫秒', icon: 'waveform.path' },
+      { id: 'tick', label: '滴答跳秒', icon: 'metronome.fill' },
+      { id: 'hide', label: '隐藏秒针', icon: 'eye.slash' },
+    ],
+  };
+
+  const fontMap = {
+    system:   '-apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif',
+    display:  '"SF Pro Display", -apple-system, "PingFang SC", sans-serif',
+    serif:    '"New York", "Songti SC", "Times New Roman", serif',
+    mono:     '"SF Mono", "JetBrains Mono", "Menlo", monospace',
+    rounded:  '"SF Pro Rounded", -apple-system, "PingFang SC", sans-serif',
+    newYork:  '"New York", "Songti SC", "Times New Roman", serif',
+  };
+
+  // Full font library for dialog
+  const fontLibrary = [
+    { id: 'system', name: 'SF Pro', family: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif', cat: 'sans' },
+    { id: 'display', name: 'SF Pro Display', family: '"SF Pro Display", -apple-system, "PingFang SC", sans-serif', cat: 'sans' },
+    { id: 'rounded', name: 'SF Pro Rounded', family: '"SF Pro Rounded", -apple-system, "PingFang SC", sans-serif', cat: 'sans' },
+    { id: 'newYork', name: 'New York', family: '"New York", "Songti SC", serif', cat: 'serif' },
+    { id: 'songti', name: 'Songti SC', family: '"Songti SC", "STSong", "SimSun", serif', cat: 'serif' },
+    { id: 'mono', name: 'SF Mono', family: '"SF Mono", "JetBrains Mono", "Menlo", monospace', cat: 'mono' },
+    { id: 'helvetica', name: 'Helvetica Neue', family: '"Helvetica Neue", Helvetica, Arial, sans-serif', cat: 'sans' },
+    { id: 'arial', name: 'Arial', family: 'Arial, "PingFang SC", sans-serif', cat: 'sans' },
+    { id: 'verdana', name: 'Verdana', family: 'Verdana, sans-serif', cat: 'sans' },
+    { id: 'trebuchet', name: 'Trebuchet MS', family: '"Trebuchet MS", sans-serif', cat: 'sans' },
+    { id: 'georgia', name: 'Georgia', family: 'Georgia, serif', cat: 'serif' },
+    { id: 'times', name: 'Times New Roman', family: '"Times New Roman", Times, serif', cat: 'serif' },
+    { id: 'courier', name: 'Courier New', family: '"Courier New", Courier, monospace', cat: 'mono' },
+    { id: 'consolas', name: 'Consolas', family: 'Consolas, monospace', cat: 'mono' },
+    { id: 'impact', name: 'Impact', family: 'Impact, sans-serif', cat: 'display' },
+    { id: 'papyrus', name: 'Papyrus', family: 'Papyrus, fantasy', cat: 'display' },
+    { id: 'copperplate', name: 'Copperplate', family: 'Copperplate, "Copperplate Gothic Light", fantasy', cat: 'display' },
+    { id: 'lucida', name: 'Lucida Grande', family: '"Lucida Grande", sans-serif', cat: 'sans' },
+    { id: 'menlo', name: 'Menlo', family: 'Menlo, Monaco, monospace', cat: 'mono' },
+    { id: 'didot', name: 'Didot', family: 'Didot, "Bodoni MT", serif', cat: 'serif' },
+    { id: 'avenir', name: 'Avenir', family: 'Avenir, "Helvetica Neue", sans-serif', cat: 'sans' },
+    { id: 'optima', name: 'Optima', family: 'Optima, sans-serif', cat: 'sans' },
+    { id: 'baskerville', name: 'Baskerville', family: 'Baskerville, serif', cat: 'serif' },
+    { id: 'garamond', name: 'Garamond', family: 'Garamond, "EB Garamond", serif', cat: 'serif' },
+    { id: 'noto-sans', name: 'Noto Sans SC', family: '"Noto Sans SC", sans-serif', cat: 'sans' },
+    { id: 'noto-serif', name: 'Noto Serif SC', family: '"Noto Serif SC", serif', cat: 'serif' },
+    { id: 'kalam', name: 'Kalam', family: '"Kalam", "Comic Sans MS", cursive', cat: 'hand' },
+    { id: 'caveat', name: 'Caveat', family: '"Caveat", "Segoe Script", cursive', cat: 'hand' },
+  ];
+
+  const bgGradients = {
+    'solid': 'var(--bg)',
+    'gradient-midnight': 'radial-gradient(ellipse at 30% 20%, #1e3a8a 0%, #0c0a2e 50%, #000 100%)',
+    'gradient-sunset':   'radial-gradient(ellipse at 70% 30%, #f97316 0%, #db2777 40%, #1e1b4b 100%)',
+    'gradient-aurora':   'linear-gradient(135deg, #0f172a 0%, #134e4a 40%, #065f46 70%, #1e293b 100%)',
+    'gradient-ocean':    'linear-gradient(160deg, #0c4a6e 0%, #1e3a8a 50%, #020617 100%)',
+    'gradient-rose':     'radial-gradient(ellipse at 50% 30%, #be185d 0%, #4c1d95 60%, #111827 100%)',
+    'gradient-forest':   'linear-gradient(135deg, #14532d 0%, #065f46 50%, #064e3b 100%)',
+    'gradient-lavender': 'linear-gradient(135deg, #4c1d95 0%, #701a75 50%, #1e1b4b 100%)',
+    'gradient-peach':    'radial-gradient(ellipse at 40% 20%, #fb923c 0%, #e11d48 40%, #831843 100%)',
+    'gradient-carbon':   'radial-gradient(ellipse at 50% 50%, #1f2937 0%, #030712 80%)',
+  };
+
+  // ===== Render helpers =====
+  function renderChips(containerId, key, list) {
+    const container = $(containerId); if (!container) return;
+    container.innerHTML = '';
+    list.forEach(opt => {
+      const chip = document.createElement('button');
+      chip.className = 'chip' + (String(cfg[key]) === String(opt.id) ? ' active' : '');
+      let inner = '';
+      if (opt.icon) inner += `<img src="${SF(opt.icon)}" alt="">`;
+      inner += `<span>${opt.label}</span>`;
+      chip.innerHTML = inner;
+      chip.onclick = () => {
+        cfg[key] = opt.id; save(); apply();
+        renderChips(containerId, key, list);
+        updateSubSections();
+        updatePreview();
+      };
+      container.appendChild(chip);
+    });
+  }
+
+  function renderSwatches(containerId, key, list) {
+    const container = $(containerId);
+    container.innerHTML = '';
+    list.forEach(opt => {
+      const swatch = document.createElement('button');
+      swatch.className = 'swatch' + (cfg[key] === opt.id ? ' active' : '');
+      swatch.style.background = opt.color;
+      swatch.title = opt.label;
+      swatch.onclick = () => { cfg[key] = opt.id; save(); apply(); renderSwatches(containerId, key, list); updatePreview(); };
+      container.appendChild(swatch);
+    });
+  }
+
+  function bindToggle(id, key) {
+    const el = $(id);
+    const refresh = () => el.classList.toggle('on', cfg[key]);
+    refresh();
+    el.onclick = () => { cfg[key] = !cfg[key]; save(); apply(); refresh(); updatePreview(); };
+  }
+
+  function bindSlider(id, valId, key, suffix, applyFn) {
+    const el = $(id), valEl = $(valId);
+    el.value = cfg[key];
+    valEl.textContent = (suffix === 'em' ? (cfg[key]/100).toFixed(2) + suffix : cfg[key] + suffix);
+    el.oninput = () => {
+      cfg[key] = parseFloat(el.value);
+      valEl.textContent = (suffix === 'em' ? (cfg[key]/100).toFixed(2) + suffix : cfg[key] + suffix);
+      save(); applyFn(); updatePreview();
+    };
+  }
+
+  // ===== Apply =====
+  function apply() {
+    const sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const effTheme = cfg.theme === 'auto' ? (sysDark ? 'dark' : 'light') : cfg.theme;
+    document.body.setAttribute('data-theme', effTheme);
+
+    document.documentElement.style.setProperty('--accent', cfg.accentColor);
+    document.documentElement.style.setProperty('--accent-glow', cfg.accentColor + '80');
+    orb1.style.background = `radial-gradient(circle, ${cfg.accentColor} 0%, transparent 70%)`;
+    orb2.style.background = `radial-gradient(circle, ${cfg.accentColor}80 0%, transparent 70%)`;
+    orb1.style.display = orb2.style.display = cfg.ambient ? 'block' : 'none';
+    mouseLight.style.display = cfg.mouseLight ? 'block' : 'none';
+
+    // Background
+    if (cfg.bgImage) {
+      bgLayer.style.background = `url(${cfg.bgImage})`;
+      bgLayer.style.backgroundSize = 'cover';
+      bgLayer.style.backgroundPosition = 'center';
+      bgLayer.style.filter = cfg.imgBlur > 0 ? `blur(${cfg.imgBlur}px)` : 'none';
+    } else {
+      bgLayer.style.background = bgGradients[cfg.bg] || bgGradients['gradient-midnight'];
+      bgLayer.style.filter = 'none';
+    }
+    bgOverlay.style.background = `rgba(0,0,0,${cfg.imgDim/100})`;
+
+    if (cfg.clockColor === 'inherit') {
+      document.documentElement.style.removeProperty('--clock-fg');
+    } else {
+      document.documentElement.style.setProperty('--clock-fg', cfg.clockColor);
+    }
+
+    document.documentElement.style.setProperty('--font', fontMap[cfg.font] || fontMap.system);
+    document.documentElement.style.setProperty('--blur-amount', cfg.blur + 'px');
+    document.documentElement.style.setProperty('--clock-radius', cfg.radius + 'px');
+    document.documentElement.style.setProperty('--letter-spacing', (cfg.letter/100) + 'em');
+    document.documentElement.style.setProperty('--clock-opacity', cfg.opacity/100);
+
+    stage.style.transform = `scale(${cfg.size / 100})`;
+    toggleBtn.classList.toggle('visible', cfg.alwaysShowBtn);
+    stage.setAttribute('data-position', cfg.position);
+    stage.setAttribute('data-layout', cfg.layout);
+
+    renderClock();
+  }
+
+  // ===== Clock Rendering =====
+  function renderClock() {
+    clockWrap.innerHTML = '';
+    clockWrap.style.fontFamily = 'var(--font)';
+    clockWrap.style.fontWeight = cfg.weight;
+    const style = cfg.clockStyle;
+    if (style === 'digital') renderDigital(clockWrap);
+    else if (style === 'analog') renderAnalog(clockWrap);
+    else if (style === 'word') renderWord(clockWrap);
+    else if (style === 'flip') renderFlip(clockWrap);
+    updateMeta();
+  }
+
+  function renderDigital(wrap, small = false) {
+    const now = new Date();
+    let h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+    let ampm = '';
+    if (cfg.timeFormat === '12h') { ampm = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; }
+    const pad = n => String(n).padStart(2, '0');
+    let hStr = cfg.leadingZero ? pad(h) : String(h);
+    const noBlinkClass = cfg.blink ? '' : 'no-blink';
+    const te = cfg.textEffect || 'none';
+    wrap.innerHTML = `
+      <div class="digital ${noBlinkClass}" data-text-effect="${te}">
+        <span class="time">
+          <span class="hours">${hStr}</span><span class="colon">:</span><span class="minutes">${pad(m)}</span>
+        </span>
+        ${cfg.showSeconds ? `<span class="seconds">${pad(s)}</span>` : ''}
+        ${ampm ? `<span class="seconds" style="font-size:0.35em; align-self:flex-start; margin-top:0.2em;">${ampm}</span>` : ''}
+      </div>`;
+  }
+
+  function renderAnalog(wrap) {
+    const now = new Date();
+    const h = now.getHours() % 12, m = now.getMinutes(), s = now.getSeconds();
+    const sDeg = s * 6, mDeg = (m + s/60) * 6, hDeg = (h + m/60) * 30;
+    let ticks = '';
+    for (let i = 0; i < 60; i++) {
+      const minor = i % 5 !== 0;
+      const num = i === 0 ? 12 : i / 5;
+      const numAttr = i % 5 === 0 ? `data-num="${num}"` : '';
+      ticks += `<div class="tick ${minor ? 'minor' : ''}" ${numAttr} style="transform: translate(-50%, -100%) rotate(${i * 6}deg)"></div>`;
+    }
+    wrap.innerHTML = `
+      <div class="analog" data-style="${cfg.analogSub}">
+        <div class="dial">${ticks}</div>
+        <div class="hand hour" style="transform: rotate(${hDeg}deg) translateX(-50%)"></div>
+        <div class="hand minute" style="transform: rotate(${mDeg}deg) translateX(-50%)"></div>
+        ${cfg.secondsMode !== 'hide' ? `<div class="hand second" data-tick="${cfg.secondsMode==='tick'}" style="transform: rotate(${sDeg}deg) translateX(-50%)"></div>` : ''}
+        <div class="center"></div>
+      </div>`;
+  }
+
+  function renderWord(wrap) {
+    const now = new Date();
+    const h = now.getHours(), m = now.getMinutes();
+    const h12 = h % 12 || 12;
+    const words12 = ['','一','二','三','四','五','六','七','八','九','十','十一','十二'];
+    const period = h < 6 ? '深夜' : h < 9 ? '清晨' : h < 12 ? '上午' : h < 14 ? '中午' : h < 18 ? '下午' : h < 22 ? '晚上' : '深夜';
+    let minuteText;
+    if (m === 0) minuteText = '整';
+    else if (m === 15) minuteText = '一刻';
+    else if (m === 30) minuteText = '半';
+    else if (m === 45) minuteText = '差一刻';
+    else minuteText = m + ' 分';
+    wrap.innerHTML = `
+      <div class="word-clock">
+        <span class="line">现在是</span>
+        <span class="line"><span class="accent">${period}</span></span>
+        <span class="line"><span class="accent">${words12[h12]}</span> 点 ${minuteText}</span>
+      </div>`;
+  }
+
+  function renderFlip(wrap) {
+    const now = new Date();
+    let h = now.getHours(), m = now.getMinutes();
+    if (cfg.timeFormat === '12h') h = h % 12 || 12;
+    const pad = n => String(n).padStart(2, '0');
+    const hd = cfg.leadingZero ? pad(h) : String(h).padStart(2, ' ');
+    const md = pad(m);
+    const ampm = cfg.timeFormat === '12h' ? (now.getHours() >= 12 ? 'PM' : 'AM') : '';
+    wrap.innerHTML = `
+      <div class="flip">
+        <div class="digit">${hd[0]}</div><div class="digit">${hd[1]}</div>
+        <div class="colon">:</div>
+        <div class="digit">${md[0]}</div><div class="digit">${md[1]}</div>
+        ${ampm ? `<div class="ampm">${ampm}</div>` : ''}
+      </div>`;
+  }
+
+  function updateMeta() {
+    if (!cfg.showDate) { meta.style.opacity = '0'; return; }
+    meta.style.opacity = '1';
+    const now = new Date();
+    const weekdays = ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'];
+    const wd = weekdays[now.getDay()];
+    let dateStr = '';
+    const y = now.getFullYear(), mo = now.getMonth() + 1, d = now.getDate();
+    if (cfg.dateFormat === 'full') dateStr = `${y} 年 ${mo} 月 ${d} 日`;
+    else if (cfg.dateFormat === 'short') dateStr = `${mo} 月 ${d} 日`;
+    else if (cfg.dateFormat === 'numeric') dateStr = `${y}/${mo}/${d}`;
+    else if (cfg.dateFormat === 'iso') dateStr = `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    metaInner.innerHTML = `<span class="date">${dateStr}</span><span class="divider-dot"></span><span class="weekday">${wd}</span>`;
+  }
+
+  // ===== Preview =====
+  function updatePreview() {
+    if (!modal.classList.contains('open')) return;
+    const sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const effTheme = cfg.theme === 'auto' ? (sysDark ? 'dark' : 'light') : cfg.theme;
+
+    let bgVal;
+    if (cfg.bgImage) {
+      previewBg.style.background = `url(${cfg.bgImage})`;
+      previewBg.style.backgroundSize = 'cover';
+      previewBg.style.backgroundPosition = 'center';
+      previewBg.style.filter = cfg.imgBlur > 0 ? `blur(${Math.min(cfg.imgBlur/2, 10)}px)` : 'none';
+      bgVal = '#000';
+    } else {
+      previewBg.style.background = bgGradients[cfg.bg] || bgGradients['gradient-midnight'];
+      previewBg.style.filter = 'none';
+      bgVal = effTheme === 'dark' ? '#000' : '#f5f5f7';
+    }
+    previewFrame.style.background = bgVal;
+    previewFrame.style.setProperty('--preview-bg', bgVal);
+
+    const textColor = cfg.clockColor === 'inherit' ? (effTheme === 'dark' ? '#fff' : '#1d1d1f') : cfg.clockColor;
+    previewClock.style.color = textColor;
+    previewClock.style.fontFamily = fontMap[cfg.font] || fontMap.system;
+    previewClock.style.fontWeight = cfg.weight;
+    previewClock.style.opacity = cfg.opacity/100;
+    previewClock.style.setProperty('--letter-spacing', (cfg.letter/100) + 'em');
+
+    // Render mini clock
+    previewClock.innerHTML = '';
+    const style = cfg.clockStyle;
+    if (style === 'digital') renderDigital(previewClock);
+    else if (style === 'analog') renderAnalog(previewClock);
+    else if (style === 'word') renderWord(previewClock);
+    else if (style === 'flip') renderFlip(previewClock);
+
+    // Preview meta
+    if (!cfg.showDate) { previewMeta.style.display = 'none'; }
+    else {
+      previewMeta.style.display = 'block';
+      const now = new Date();
+      const weekdays = ['日','一','二','三','四','五','六'];
+      const mo = now.getMonth() + 1, d = now.getDate();
+      previewMeta.textContent = `${mo}/${d} 星期${weekdays[now.getDay()]}`;
+      previewMeta.style.color = textColor;
+    }
+  }
+
+  function updateSubSections() {
+    $('analogSubSection').style.display = cfg.clockStyle === 'analog' ? '' : 'none';
+    $('layoutSection').style.display = (cfg.clockStyle === 'digital' || cfg.clockStyle === 'flip' || cfg.clockStyle === 'word') ? '' : 'none';
+    $('fontSection').style.display = cfg.clockStyle !== 'analog' ? '' : 'none';
+    $('weightSection').style.display = (cfg.clockStyle === 'digital' || cfg.clockStyle === 'word') ? '' : 'none';
+    $('positionSection').style.display = cfg.clockStyle !== 'analog' ? '' : 'none';
+    $('textEffectSection').style.display = cfg.clockStyle === 'digital' ? '' : 'none';
+    $('analogTickSection').style.display = cfg.clockStyle === 'analog' ? '' : 'none';
+  }
+
+  // ===== Modal Controls =====
+  function openModal() { modal.classList.add('open'); overlayEl.classList.add('show'); updatePreview(); }
+  function closeModal() { modal.classList.remove('open'); overlayEl.classList.remove('show'); }
+  function openFontDialog() { renderFontGrid(currentFontCat); fontDialog.classList.add('open'); }
+  function closeFontDialog() { fontDialog.classList.remove('open'); }
+
+  toggleBtn.onclick = (e) => { e.stopPropagation(); openModal(); };
+  $('settingsClose').onclick = closeModal;
+  overlayEl.onclick = () => { if (fontDialog.classList.contains('open')) closeFontDialog(); else closeModal(); };
+  $('openFontDialog').onclick = openFontDialog;
+  $('fontDialogClose').onclick = closeFontDialog;
+
+  // ===== Font Dialog =====
+  let currentFontCat = 'all';
+  document.querySelectorAll('.font-tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.font-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentFontCat = tab.dataset.cat;
+      renderFontGrid(currentFontCat);
+    };
+  });
+
+  function renderFontGrid(cat) {
+    const grid = $('fontGrid');
+    grid.innerHTML = '';
+    const filtered = cat === 'all' ? fontLibrary : fontLibrary.filter(f => f.cat === cat);
+    const now = new Date();
+    let h = now.getHours(), m = now.getMinutes();
+    if (cfg.timeFormat === '12h') h = h % 12 || 12;
+    const pad = n => String(n).padStart(2, '0');
+    const timeStr = (cfg.leadingZero ? pad(h) : String(h)) + ':' + pad(m);
+
+    filtered.forEach(f => {
+      const card = document.createElement('button');
+      card.className = 'font-card' + (cfg.font === f.id ? ' active' : '');
+      card.innerHTML = `
+        <div class="preview-time" style="font-family: ${f.family};">${timeStr}</div>
+        <div class="font-name">${f.name}</div>
+        <div class="check">✓</div>
+      `;
+      card.onclick = () => {
+        cfg.font = f.id; save(); apply();
+        document.querySelectorAll('.font-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        renderChips('fontChips', 'font', options.font);
+        updatePreview();
+      };
+      grid.appendChild(card);
+    });
+  }
+
+  // ===== Background Image =====
+  $('bgImageUrl').value = cfg.bgImage || '';
+  $('applyBgImage').onclick = () => {
+    const url = $('bgImageUrl').value.trim();
+    if (url) { cfg.bgImage = url; save(); apply(); updatePreview(); }
+  };
+  $('clearBgImage').onclick = () => {
+    cfg.bgImage = ''; $('bgImageUrl').value = ''; save(); apply(); updatePreview();
+  };
+  $('sampleBgImage').onclick = () => {
+    cfg.bgImage = 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1600';
+    $('bgImageUrl').value = cfg.bgImage;
+    save(); apply(); updatePreview();
+  };
+
+  // Custom color
+  $('applyCustomColor').onclick = () => {
+    const v = $('customColorInput').value.trim();
+    if (/^#[0-9a-fA-F]{3,8}$/.test(v)) {
+      cfg.clockColor = v; save(); apply(); renderSwatches('colorSwatches', 'clockColor', options.clockColor); updatePreview();
+    }
+  };
+
+  // ===== Init =====
+  renderChips('clockStyleChips', 'clockStyle', options.clockStyle);
+  renderChips('analogSubChips', 'analogSub', options.analogSub);
+  renderChips('textEffectChips', 'textEffect', options.textEffect);
+  renderChips('layoutChips', 'layout', options.layout);
+  renderChips('positionChips', 'position', options.position);
+  renderChips('fontChips', 'font', options.font);
+  renderChips('weightChips', 'weight', options.weight);
+  renderChips('themeChips', 'theme', options.theme);
+  renderChips('bgChips', 'bg', options.bg);
+  renderChips('timeFormatChips', 'timeFormat', options.timeFormat);
+  renderChips('dateFormatChips', 'dateFormat', options.dateFormat);
+  renderChips('secondsModeChips', 'secondsMode', options.secondsMode);
+  renderSwatches('colorSwatches', 'clockColor', options.clockColor);
+  renderSwatches('accentSwatches', 'accentColor', options.accentColor);
+
+  bindToggle('showSecondsToggle', 'showSeconds');
+  bindToggle('showDateToggle', 'showDate');
+  bindToggle('blinkToggle', 'blink');
+  bindToggle('leadingZeroToggle', 'leadingZero');
+  bindToggle('ambientToggle', 'ambient');
+  bindToggle('mouseLightToggle', 'mouseLight');
+  bindToggle('alwaysShowToggle', 'alwaysShowBtn');
+
+  bindSlider('sizeSlider', 'sizeVal', 'size', '%', () => { stage.style.transform = `scale(${cfg.size / 100})`; });
+  bindSlider('opacitySlider', 'opacityVal', 'opacity', '%', () => { document.documentElement.style.setProperty('--clock-opacity', cfg.opacity/100); });
+  bindSlider('letterSlider', 'letterVal', 'letter', 'em', () => { document.documentElement.style.setProperty('--letter-spacing', (cfg.letter/100) + 'em'); });
+  bindSlider('blurSlider', 'blurVal', 'blur', 'px', () => { document.documentElement.style.setProperty('--blur-amount', cfg.blur + 'px'); });
+  bindSlider('radiusSlider', 'radiusVal', 'radius', 'px', () => { document.documentElement.style.setProperty('--clock-radius', cfg.radius + 'px'); });
+  bindSlider('imgBlurSlider', 'imgBlurVal', 'imgBlur', 'px', () => { apply(); });
+  bindSlider('imgDimSlider', 'imgDimVal', 'imgDim', '%', () => { bgOverlay.style.background = `rgba(0,0,0,${cfg.imgDim/100})`; updatePreview(); });
+
+  $('resetBtn').onclick = () => {
+    if (confirm('确定要重置所有设置为默认吗？')) {
+      cfg = { ...DEFAULTS }; save();
+      renderChips('clockStyleChips', 'clockStyle', options.clockStyle);
+      renderChips('analogSubChips', 'analogSub', options.analogSub);
+      renderChips('textEffectChips', 'textEffect', options.textEffect);
+      renderChips('layoutChips', 'layout', options.layout);
+      renderChips('positionChips', 'position', options.position);
+      renderChips('fontChips', 'font', options.font);
+      renderChips('weightChips', 'weight', options.weight);
+      renderChips('themeChips', 'theme', options.theme);
+      renderChips('bgChips', 'bg', options.bg);
+      renderChips('timeFormatChips', 'timeFormat', options.timeFormat);
+      renderChips('dateFormatChips', 'dateFormat', options.dateFormat);
+      renderChips('secondsModeChips', 'secondsMode', options.secondsMode);
+      renderSwatches('colorSwatches', 'clockColor', options.clockColor);
+      renderSwatches('accentSwatches', 'accentColor', options.accentColor);
+      bindToggle('showSecondsToggle', 'showSeconds');
+      bindToggle('showDateToggle', 'showDate');
+      bindToggle('blinkToggle', 'blink');
+      bindToggle('leadingZeroToggle', 'leadingZero');
+      bindToggle('ambientToggle', 'ambient');
+      bindToggle('mouseLightToggle', 'mouseLight');
+      bindToggle('alwaysShowToggle', 'alwaysShowBtn');
+      ['size','opacity','letter','blur','radius','imgBlur','imgDim'].forEach(k => {
+        const el = $(k + 'Slider'); if (el) el.value = DEFAULTS[k];
+      });
+      $('sizeVal').textContent = DEFAULTS.size + '%';
+      $('opacityVal').textContent = DEFAULTS.opacity + '%';
+      $('letterVal').textContent = (DEFAULTS.letter/100).toFixed(2) + 'em';
+      $('blurVal').textContent = DEFAULTS.blur + 'px';
+      $('radiusVal').textContent = DEFAULTS.radius + 'px';
+      $('imgBlurVal').textContent = DEFAULTS.imgBlur + 'px';
+      $('imgDimVal').textContent = DEFAULTS.imgDim + '%';
+      $('bgImageUrl').value = '';
+      apply(); updateSubSections(); updatePreview();
+    }
+  };
+
+  // ===== Tick loop =====
+  function tick() {
+    if (cfg.clockStyle === 'analog' && cfg.secondsMode === 'smooth') {
+      // smooth updates handled in smoothTick
+    } else {
+      const prev = clockWrap.dataset.lastSecond;
+      const now = new Date();
+      const cur = now.getSeconds();
+      if (prev !== String(cur)) {
+        clockWrap.dataset.lastSecond = String(cur);
+        renderClock();
+        updatePreview();
+      }
+    }
+    updateMeta();
+  }
+
+  function smoothTick() {
+    if (cfg.clockStyle === 'analog' && cfg.secondsMode === 'smooth') {
+      const analog = clockWrap.querySelector('.analog');
+      if (analog) {
+        const now = new Date();
+        const h = now.getHours() % 12, m = now.getMinutes(), s = now.getSeconds(), ms = now.getMilliseconds();
+        const sDeg = (s + ms/1000) * 6;
+        const mDeg = (m + s/60) * 6;
+        const hDeg = (h + m/60) * 30;
+        const hands = analog.querySelectorAll('.hand');
+        if (hands[0]) hands[0].style.transform = `rotate(${hDeg}deg) translateX(-50%)`;
+        if (hands[1]) hands[1].style.transform = `rotate(${mDeg}deg) translateX(-50%)`;
+        if (hands[2]) hands[2].style.transform = `rotate(${sDeg}deg) translateX(-50%)`;
+      }
+    }
+    requestAnimationFrame(smoothTick);
+  }
+
+  setInterval(tick, 1000);
+  requestAnimationFrame(smoothTick);
+
+  // Auto theme
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (cfg.theme === 'auto') { apply(); updatePreview(); }
+  });
+
+  // Keyboard
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      if (fontDialog.classList.contains('open')) closeFontDialog();
+      else if (modal.classList.contains('open')) closeModal();
+    }
+    if ((e.key === 'f' || e.key === 'F') && !modal.classList.contains('open') && !fontDialog.classList.contains('open')) {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+      else document.exitFullscreen?.();
+    }
+    if (e.key === ',' && !modal.classList.contains('open')) openModal();
+  });
+
+  stage.addEventListener('dblclick', () => {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  });
+
+  // Mouse light
+  document.addEventListener('mousemove', (e) => {
+    if (cfg.mouseLight) {
+      mouseLight.style.left = e.clientX + 'px';
+      mouseLight.style.top = e.clientY + 'px';
+    }
+  });
+
+  // Update preview on modal open interval
+  setInterval(() => { if (modal.classList.contains('open')) updatePreview(); }, 1000);
+
+  apply();
+  updateSubSections();
+})();
+</script>
+</body>
+</html>
